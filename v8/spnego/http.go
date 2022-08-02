@@ -98,6 +98,8 @@ func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
 					return resp, errors.New("stopped after 10 redirects")
 				}
 				if req.Body != nil {
+					// ReadAll from the TeeReader then all previous req.Body bytes can be written to target body
+					io.Copy(io.Discard, req.Body)
 					// Refresh the body reader so the body can be sent again
 					e.reqTarget.Body = io.NopCloser(&body)
 				}
@@ -112,6 +114,8 @@ func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
 			return resp, err
 		}
 		if req.Body != nil {
+			// ReadAll from the TeeReader then all previous req.Body bytes can be written to target body
+			io.Copy(io.Discard, req.Body)
 			// Refresh the body reader so the body can be sent again
 			req.Body = io.NopCloser(&body)
 		}
