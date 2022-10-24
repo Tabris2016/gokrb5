@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -80,12 +81,18 @@ func NewClient(krb5Cl *client.Client, httpCl *http.Client, spn string) *Client {
 
 // Do is the SPNEGO enabled HTTP client's equivalent of the http.Client's Do method.
 func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
-	var body bytes.Buffer
+	//var body bytes.Buffer
+	//if req.Body != nil {
+	//	// Use a tee reader to capture any body sent in case we have to replay it again
+	//	teeR := io.TeeReader(req.Body, &body)
+	//	teeRC := teeReadCloser{teeR, req.Body}
+	//	req.Body = teeRC
+	//}
+	var body []byte
 	if req.Body != nil {
 		// Use a tee reader to capture any body sent in case we have to replay it again
-		teeR := io.TeeReader(req.Body, &body)
-		teeRC := teeReadCloser{teeR, req.Body}
-		req.Body = teeRC
+		body, _ = ioutil.ReadAll(req.Body)
+		req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 	}
 	resp, err = c.Client.Do(req)
 	if err != nil {
@@ -98,10 +105,9 @@ func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
 					return resp, errors.New("stopped after 10 redirects")
 				}
 				if req.Body != nil {
-					// ReadAll from the TeeReader then all previous req.Body bytes can be written to target body
-					io.Copy(io.Discard, req.Body)
 					// Refresh the body reader so the body can be sent again
-					e.reqTarget.Body = io.NopCloser(&body)
+					//e.reqTarget.Body = ioutil.NopCloser(&body)
+					e.reqTarget.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 				}
 				return c.Do(e.reqTarget)
 			}
@@ -114,12 +120,11 @@ func (c *Client) Do(req *http.Request) (resp *http.Response, err error) {
 			return resp, err
 		}
 		if req.Body != nil {
-			// ReadAll from the TeeReader then all previous req.Body bytes can be written to target body
-			io.Copy(io.Discard, req.Body)
 			// Refresh the body reader so the body can be sent again
-			req.Body = io.NopCloser(&body)
+			//req.Body = ioutil.NopCloser(&body)
+			req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 		}
-		io.Copy(io.Discard, resp.Body)
+		io.Copy(ioutil.Discard, resp.Body)
 		resp.Body.Close()
 		return c.Do(req)
 	}
@@ -178,18 +183,18 @@ func setRequestSPN(r *http.Request) (types.PrincipalName, error) {
 			return types.PrincipalName{}, err
 		}
 		name, err := net.LookupCNAME(h)
-		if name != "" && err == nil {
+		if err == nil {
 			// Underlyng canonical name should be used for SPN
-			h = strings.ToLower(name)
+			h = name
 		}
 		h = strings.TrimSuffix(h, ".")
 		r.Host = fmt.Sprintf("%s:%s", h, p)
 		return types.NewPrincipalName(nametype.KRB_NT_PRINCIPAL, "HTTP/"+h), nil
 	}
 	name, err := net.LookupCNAME(h)
-	if name != "" && err == nil {
+	if err == nil {
 		// Underlyng canonical name should be used for SPN
-		h = strings.ToLower(name)
+		h = name
 	}
 	h = strings.TrimSuffix(h, ".")
 	r.Host = h
